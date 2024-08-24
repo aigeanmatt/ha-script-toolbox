@@ -1,0 +1,121 @@
+alias: Flash LED Complete
+description: Flash a light entity between two colors or off, with options to restore original state
+fields:
+  target_light:
+    name: "Target Light"
+    description: "The light entity to flash"
+    required: true
+    selector:
+      entity:
+        domain: light
+  color_1:
+    name: "Color 1"
+    description: "First color in the sequence"
+    default: [255, 0, 0]
+    selector:
+      color_rgb:
+  color_2:
+    name: "Color 2"
+    description: "Second color in the sequence (ignored if 'Turn Off' is true)"
+    default: [0, 0, 255]
+    selector:
+      color_rgb:
+  turn_off:
+    name: "Turn Off Instead"
+    description: "Turn the light off instead of using Color 2"
+    default: false
+    selector:
+      boolean:
+  flash_duration:
+    name: "Flash Duration"
+    description: "Duration of each color state in seconds"
+    default: 1
+    selector:
+      number:
+        min: 0.1
+        max: 10
+        step: 0.1
+        unit_of_measurement: seconds
+  flash_count:
+    name: "Flash Count"
+    description: "Number of times to alternate colors"
+    default: 5
+    selector:
+      number:
+        min: 1
+        max: 20
+        mode: slider
+  restore_state:
+    name: "Restore Original State"
+    description: "Restore the light to its original state after flashing"
+    default: true
+    selector:
+      boolean:
+variables:
+  restore_state_bool: "{{ restore_state | default(true) }}"
+sequence:
+  - service: persistent_notification.create
+    data:
+      title: "Flash LED Complete"
+      message: >
+        Script started. Color 1: {{ color_1 }}, 
+        {% if turn_off %}Turn Off Instead of Color 2
+        {% else %}Color 2: {{ color_2 }}
+        {% endif %}
+        Flash Duration: {{ flash_duration }}s, Flash Count: {{ flash_count }},
+        Restore State: {{ restore_state_bool }}
+
+  - choose:
+      - conditions:
+          - "{{ restore_state_bool }}"
+        sequence:
+          - service: scene.create
+            data:
+              scene_id: flash_led_original_state
+              snapshot_entities: "{{ target_light }}"
+
+  - repeat:
+      count: "{{ flash_count }}"
+      sequence:
+        - service: light.turn_on
+          target:
+            entity_id: "{{ target_light }}"
+          data:
+            rgb_color: "{{ color_1 }}"
+            brightness: 255
+        - delay:
+            seconds: "{{ flash_duration }}"
+        - choose:
+            - conditions:
+                - "{{ turn_off }}"
+              sequence:
+                - service: light.turn_off
+                  target:
+                    entity_id: "{{ target_light }}"
+          default:
+            - service: light.turn_on
+              target:
+                entity_id: "{{ target_light }}"
+              data:
+                rgb_color: "{{ color_2 }}"
+                brightness: 255
+        - delay:
+            seconds: "{{ flash_duration }}"
+
+  - choose:
+      - conditions:
+          - "{{ restore_state_bool }}"
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: scene.flash_led_original_state
+          - delay:
+              seconds: 0.5
+          - service: scene.delete
+            data:
+              scene_id: flash_led_original_state
+
+  - service: persistent_notification.create
+    data:
+      title: "Flash LED Complete"
+      message: "Script completed{% if restore_state_bool %} and original state restored{% endif %}"
